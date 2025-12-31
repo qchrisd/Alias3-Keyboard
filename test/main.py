@@ -1,14 +1,4 @@
-from machine import Pin
-from utime import sleep
+from lib.blink import init_pin, blink_led
 
-pin = Pin(2, Pin.OUT)
-
-print("LED starts flashing...")
-while True:
-    try:
-        pin.toggle()
-        sleep(1) # sleep 1sec
-    except KeyboardInterrupt:
-        break
-pin.off()
-print("Finished.")
+pin = init_pin(2)
+blink_led(pin)

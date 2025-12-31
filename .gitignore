@@ -208,4 +208,7 @@ __marimo__/
 
 # VS Code
 .vscode/
-.code-workspace
+*.code-workspace
+
+# Micropico
+*.micropico

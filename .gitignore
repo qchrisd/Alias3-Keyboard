@@ -212,3 +212,6 @@ __marimo__/
 
 # Micropico
 *.micropico
+
+# MPY Workbench
+.mpy-workbench/

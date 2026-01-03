@@ -6,7 +6,7 @@ def init_pin(pin_number,
     return Pin(pin_number, mode)
 
 def blink_led(pin, 
-              delay = 1):
+              delay:float = 1):
     print("LED starts flashing...")
     while True:
         try:

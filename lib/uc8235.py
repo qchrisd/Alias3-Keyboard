@@ -96,14 +96,31 @@ class UC8253:
         self.cs.value(1)
 
     def init(self):
+        # Power settings
         self.send_command(POWER_SETTING_PWR)
-        self.send_data([0x03, 0x00, 0x2B, 0x2B, 0x09])
+        self.send_data([0x03, 0x10, 0x3F, 0x3F, 0x0D])
+        # Panel settings
+        # self.send_command(0x00)
+        # self.send_data([0b11011111,
+        #                 0b00001101])
+        
         self.send_command(POWER_ON)
         self.wait_until_idle()
         self.send_command(DISPLAY_REFRESH)
         self.wait_until_idle()
 
+        self.clear_white()
+        self.send_command(DISPLAY_REFRESH)
+        self.wait_until_idle()
 
+    # Clear screen (white)
+    def clear_white(self):
+        buf = [0x00] * (EPD_WIDTH_BYTES * EPD_HEIGHT)
+        print("  Starting clear to white...")
+        self.send_command(DISPLAY_START_TRANSMISSION_1)
+        self.send_data(buf)
+        print(f"  Data transfered.")
+        
 
 
 
@@ -210,10 +227,7 @@ class UC8253:
         self.send_command_with_data(0x24, buffer)
         self.refresh()
 
-    # Clear screen (white)
-    def clear_white(self):
-        buf = bytearray([0xFF] * (EPD_WIDTH_BYTES * EPD_HEIGHT))
-        self.display_frame(buf)
+
 
     # Full refresh (legacy 0x12)
     def refresh(self):

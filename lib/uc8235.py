@@ -49,6 +49,10 @@ RESOLUTION_SETTING = 0x61
 # SPI chunk size for large buffer writes
 SPI_CHUNK_SIZE = 512  # bytes
 
+# Full white and full black buffers
+FULL_WHITE = [0xFF] * (EPD_WIDTH_BYTES * EPD_HEIGHT)
+FULL_BLACK = [0x00] * (EPD_WIDTH_BYTES * EPD_HEIGHT)
+
 
 class UC8253:
     def __init__(self):
@@ -109,16 +113,15 @@ class UC8253:
         self.send_command(DISPLAY_REFRESH)
         self.wait_until_idle()
 
-        self.clear_white()
+        self.write_to_buffer(FULL_WHITE)
         self.send_command(DISPLAY_REFRESH)
         self.wait_until_idle()
 
     # Clear screen (white)
-    def clear_white(self):
-        buf = [0x00] * (EPD_WIDTH_BYTES * EPD_HEIGHT)
+    def write_to_buffer(self, buffer:list):
         print("  Starting clear to white...")
         self.send_command(DISPLAY_START_TRANSMISSION_1)
-        self.send_data(buf)
+        self.send_data(buffer)
         print(f"  Data transfered.")
         
 

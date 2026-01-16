@@ -50,8 +50,8 @@ RESOLUTION_SETTING = 0x61
 SPI_CHUNK_SIZE = 512  # bytes
 
 # Full white and full black buffers
-FULL_WHITE = [0xFF] * (EPD_WIDTH_BYTES * EPD_HEIGHT)
-FULL_BLACK = [0x00] * (EPD_WIDTH_BYTES * EPD_HEIGHT)
+FULL_WHITE = bytearray([0xFF] * (EPD_WIDTH_BYTES * EPD_HEIGHT))
+FULL_BLACK = bytearray([0x00] * (EPD_WIDTH_BYTES * EPD_HEIGHT))
 
 
 class UC8253:
@@ -89,15 +89,24 @@ class UC8253:
         self.cs.value(0)
         self.dc.value(0)
         self.spi.write(bytes([cmd]))
+        time.sleep_ms(1)
         self.cs.value(1)
     
-    def send_data(self, data:list):
+    def send_data(self, data:list|bytearray):
         self.cs.value(0)
         self.dc.value(1)
-        for i in range(0, len(data)):
-            self.spi.write(bytes([data[i]]))
-            time.sleep_ms(1)
+        if isinstance(data, list):
+            data = bytearray(data)
+        self.spi.write(data)
+        time.sleep_ms(1)
         self.cs.value(1)
+
+    def wait_until_idle(self, timeout_ms=5000):
+        start = time.ticks_ms()
+        while self.busy.value() == 0:  # BUSY active low
+            if time.ticks_diff(time.ticks_ms(), start) > timeout_ms:
+                raise RuntimeError("EPD busy timeout")
+            time.sleep_ms(10)
 
     def init(self):
         # Power settings
@@ -113,143 +122,30 @@ class UC8253:
         self.send_command(DISPLAY_REFRESH)
         self.wait_until_idle()
 
-        self.write_to_buffer(FULL_WHITE)
-        self.send_command(DISPLAY_REFRESH)
+        # self.write_to_buffer(FULL_WHITE)
+        # self.send_command(DISPLAY_REFRESH)
+        self.pattern_test()
         self.wait_until_idle()
 
-    # Clear screen (white)
-    def write_to_buffer(self, buffer:list):
-        print("  Starting clear to white...")
+    def write_to_buffer(self, buffer:list|bytearray):
+        print("  Starting data transfer...")
         self.send_command(DISPLAY_START_TRANSMISSION_1)
         self.send_data(buffer)
         print(f"  Data transfered.")
-        
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-    # Send command with optional data
-    def send_command_with_data(self, cmd, data=None):
-        self.cs.value(0)
-        self.dc.value(0)
-        self.spi.write(bytearray([cmd]))  # command byte
-
-        if data is not None:
-            self.dc.value(1)
-            if isinstance(data, int):
-                self.spi.write(bytearray([data]))
+    def pattern_test(self):
+        print("Drawing stripes...")
+        buf = bytearray()
+        for i in range(EPD_WIDTH_BYTES * EPD_HEIGHT):
+            if (i // 2) % 2 == 0:
+                buf.append(0x00)  # black
             else:
-                # ensure bytes for SPI, write in chunks
-                for i in range(0, len(data), SPI_CHUNK_SIZE):
-                    chunk = data[i:i + SPI_CHUNK_SIZE]
-                    if isinstance(chunk, list):
-                        chunk = bytearray(chunk)
-                    self.spi.write(chunk)
-        self.cs.value(1)
-
-    # Wait for BUSY to go low (panel idle)
-    def wait_until_idle(self, timeout_ms=5000):
-        start = time.ticks_ms()
-        while self.busy.value() == 0:  # BUSY active low
-            if time.ticks_diff(time.ticks_ms(), start) > timeout_ms:
-                raise RuntimeError("EPD busy timeout")
-            time.sleep_ms(10)
-
-    # # Panel initialization
-    # def init(self):
-    #     # POWER_SETTING
-    #     self.send_command_with_data(0x01, bytearray([0x03, 0x00, 0x2B, 0x2B, 0x09]))
-    #     self.send_command_with_data(0x04)  # POWER_ON
-    #     self.wait_until_idle()
-
-    #     # PANEL_SETTING
-    #     self.send_command_with_data(0x00, 0x1F)
-
-    #     # PLL_CONTROL
-    #     self.send_command_with_data(0x30, 0x3C)
-
-    #     # RESOLUTION
-    #     self.send_command_with_data(0x61, bytearray([
-    #         (EPD_WIDTH >> 8) & 0xFF,
-    #         EPD_WIDTH & 0xFF,
-    #         (EPD_HEIGHT >> 8) & 0xFF,
-    #         EPD_HEIGHT & 0xFF
-    #     ]))
-
-    #     # GATE driving
-    #     self.send_command_with_data(0x03, bytearray([
-    #         (EPD_HEIGHT - 1) & 0xFF,
-    #         ((EPD_HEIGHT - 1) >> 8) & 0xFF,
-    #         0x00
-    #     ]))
-
-    #     # DATA_ENTRY_MODE
-    #     self.send_command_with_data(0x11, 0x03)
-
-    #     # VCOM AND DATA INTERVAL
-    #     self.send_command_with_data(0x50, 0x97)
-
-    #     # VCOM DC
-    #     self.send_command_with_data(0x82, 0x12)
-
-    #     # Minimal LUT to allow RAM writes
-    #     self.send_command_with_data(0x32, bytearray([0x00] * 70))
-
-    # Set a drawing window
-    def set_window(self, x_start, y_start, x_end, y_end):
-        self.send_command_with_data(0x44, bytearray([x_start // 8, x_end // 8]))
-        self.send_command_with_data(0x45, bytearray([
-            y_start & 0xFF, (y_start >> 8) & 0xFF,
-            y_end & 0xFF, (y_end >> 8) & 0xFF
-        ]))
-
-    # Set cursor for RAM writes
-    def set_cursor(self, x, y):
-        self.send_command_with_data(0x4E, x // 8)
-        self.send_command_with_data(0x4F, bytearray([y & 0xFF, (y >> 8) & 0xFF]))
-
-    # Display full frame buffer (BW)
-    def display_frame(self, buffer):
-        if len(buffer) != EPD_WIDTH_BYTES * EPD_HEIGHT:
-            raise ValueError("Invalid buffer length")
-
-        self.set_window(0, 0, EPD_WIDTH - 1, EPD_HEIGHT - 1)
-        self.set_cursor(0, 0)
-        self.send_command_with_data(0x24, buffer)
-        self.refresh()
-
-
-
-    # Full refresh (legacy 0x12)
-    def refresh(self):
-        self.send_command_with_data(0x12)
+                buf.append(0xFF)  # white
+        self.write_to_buffer(buf)
         self.wait_until_idle()
-
-    # Sleep mode
-    def sleep(self):
-        self.send_command_with_data(0x02)  # POWER_OFF
+        self.send_command(DISPLAY_REFRESH)
         self.wait_until_idle()
-        self.send_command_with_data(0x07, 0xA5)  # DEEP_SLEEP
-
-    # Optional test pattern (black/white stripes)
-    def test_pattern(self):
-        buf = bytearray(EPD_WIDTH_BYTES * EPD_HEIGHT)
-        for i in range(len(buf)):
-            buf[i] = 0xFF if (i // 8) % 2 else 0x00
-        self.display_frame(buf)
-
+        
 
 # Example usage
 if __name__ == "__main__":

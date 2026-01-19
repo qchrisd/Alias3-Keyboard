@@ -37,9 +37,11 @@ EPD_WIDTH       = 240
 EPD_HEIGHT      = 416
 
 RST_PIN         = 12
-DC_PIN          = 8
-CS_PIN          = 9
-BUSY_PIN        = 13
+DC_PIN          = 27 # 8
+CS_PIN          = 5 # 9
+BUSY_PIN        = 33 # 13
+SCK_PIN         = 18
+MOSI_PIN        = 23
 
 EPD_3IN7_lut_4Gray_GC =[
 0x2A,0x06,0x15,0x00,0x00,0x00,0x00,0x00,0x00,0x00,#1
@@ -101,7 +103,7 @@ class EPD_3in7:
     def __init__(self):
         self.reset_pin = Pin(RST_PIN, Pin.OUT)
         
-        self.busy_pin = Pin(BUSY_PIN, Pin.IN, Pin.PULL_UP)
+        self.busy_pin = Pin(BUSY_PIN, Pin.IN)  # Removed PULL_UP - should use external pull-up or controller's
         self.cs_pin = Pin(CS_PIN, Pin.OUT)
         self.width = EPD_WIDTH
         self.height = EPD_HEIGHT
@@ -117,8 +119,9 @@ class EPD_3in7:
         self.grayish = 0x55
         
         
-        self.spi = SPI(1)
-        self.spi.init(baudrate=4000_000)
+        # self.spi = SPI(2)
+        self.spi = SPI(1, baudrate=1000000, sck=Pin(SCK_PIN), mosi=Pin(MOSI_PIN))
+        self.spi.init()#baudrate=4000_000)
         self.dc_pin = Pin(DC_PIN, Pin.OUT)
         
         
@@ -127,8 +130,8 @@ class EPD_3in7:
         self.image1Gray = framebuf.FrameBuffer(self.buffer_1Gray, self.width, self.height, framebuf.MONO_HLSB)
         self.image4Gray = framebuf.FrameBuffer(self.buffer_4Gray, self.width, self.height, framebuf.GS2_HMSB)
         
-        self.EPD_3IN7_4Gray_init()
-        self.EPD_3IN7_4Gray_Clear()
+        self.EPD_3IN7_1Gray_init()
+        self.EPD_3IN7_1Gray_Clear()
         utime.sleep_ms(500)
 
     def digital_write(self, pin, value):
@@ -148,31 +151,53 @@ class EPD_3in7:
 
     # Hardware reset
     def reset(self):
+        print("Reset - Setting pin to 1")
         self.digital_write(self.reset_pin, 1)
-        self.delay_ms(30) 
+        self.delay_ms(200) 
+        print("Reset - Set pin to 1 complete")
+        print("Reset - Setting pin to 0")
         self.digital_write(self.reset_pin, 0)
-        self.delay_ms(3)
+        self.delay_ms(200)
+        print("Reset - Set pin to 0 complete")
+        print("Reset - Setting pin to 1")
         self.digital_write(self.reset_pin, 1)
-        self.delay_ms(30)   
+        print("Reset - Set pin to 1 complete")
+        self.delay_ms(200)   
 
     def send_command(self, command):
         self.digital_write(self.dc_pin, 0)
         self.digital_write(self.cs_pin, 0)
         self.spi_writebyte([command])
         self.digital_write(self.cs_pin, 1)
+        self.delay_ms(1)  # Small delay to ensure command is processed
 
     def send_data(self, data):
         self.digital_write(self.dc_pin, 1)
         self.digital_write(self.cs_pin, 0)
-        self.spi_writebyte([data])
+        if isinstance(data, list):
+            self.spi_writebyte(data)
+        else:
+            self.spi_writebyte([data])
         self.digital_write(self.cs_pin, 1)
         
     def ReadBusy(self):
-        print("e-Paper busy")
-        while(self.digital_read(self.busy_pin) == 1):      #  0: idle, 1: busy
+        print("e-Paper busy - waiting for completion")
+        timeout = 5000  # Increased timeout from 2000 to 5000
+        initial_state = self.digital_read(self.busy_pin)
+        print(f"Initial busy pin state: {initial_state} (0=idle, 1=busy)")
+        
+        # Wait for busy pin to go LOW (0 = idle, 1 = busy)
+        while(self.digital_read(self.busy_pin) == 1):      
             self.delay_ms(10)
+            timeout -= 1
+            if (timeout % 500 == 0):
+                current_state = self.digital_read(self.busy_pin)
+                print(f"Waiting... timeout remaining: {timeout}, current busy state: {current_state}")
+            if (timeout <= 0):
+                print("WARNING: ReadBusy timeout - display may not have completed")
+                break
         self.delay_ms(200) 
-        print("e-Paper busy release")
+        print("e-Paper busy release - display ready")
         
     def Load_LUT(self,lut):
         self.send_command(0x32)
@@ -189,31 +214,30 @@ class EPD_3in7:
                 print("There is no such lut ")
         
     def EPD_3IN7_4Gray_init(self):
-    
+        print("EPD_3IN7_4Gray_init")
         self.reset()              # SWRESET
 
+        self.send_command(0x04)  # POWER_ON - wake from sleep
+        self.delay_ms(300)
+        
         self.send_command(0x12)
         self.delay_ms(300)   
 
         self.send_command(0x46)
         self.send_data(0xF7)
-        self.ReadBusy()
+        self.delay_ms(1)
         self.send_command(0x47)
         self.send_data(0xF7)
-        self.ReadBusy()
+        self.delay_ms(1)
         
         self.send_command(0x01)   # setting gaet number
-        self.send_data(0xDF)
-        self.send_data(0x01)
-        self.send_data(0x00)
+        self.send_data([0xDF, 0x01, 0x00])
 
         self.send_command(0x03)   # set gate voltage
         self.send_data(0x00)
 
         self.send_command(0x04)   # set source voltage
-        self.send_data(0x41)
-        self.send_data(0xA8)
-        self.send_data(0x32)
+        self.send_data([0x41, 0xA8, 0x32])
 
         self.send_command(0x11)   # set data entry sequence
         self.send_data(0x03)
@@ -222,11 +246,7 @@ class EPD_3in7:
         self.send_data(0x03)
 
         self.send_command(0x0C)   # set booster strength
-        self.send_data(0xAE)
-        self.send_data(0xC7)
-        self.send_data(0xC3)
-        self.send_data(0xC0)
-        self.send_data(0xC0)  
+        self.send_data([0xAE, 0xC7, 0xC3, 0xC0, 0xC0])
 
         self.send_command(0x18)   # set internal sensor on
         self.send_data(0x80)
@@ -235,57 +255,42 @@ class EPD_3in7:
         self.send_data(0x44)
 
         self.send_command(0x37)   # set display option, these setting turn on previous function
-        self.send_data(0x00)
-        self.send_data(0x00)
-        self.send_data(0x00)
-        self.send_data(0x00)
-        self.send_data(0x00) 
-        self.send_data(0x00)
-        self.send_data(0x00)
-        self.send_data(0x00)
-        self.send_data(0x00)
-        self.send_data(0x00) 
+        self.send_data([0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00])
 
         self.send_command(0x44)   # setting X direction start/end position of RAM
-        self.send_data(0x00)
-        self.send_data(0x00)
-        self.send_data(0x17)
-        self.send_data(0x01)
+        self.send_data([0x00, 0x00, 0x17, 0x01])
 
         self.send_command(0x45)   # setting Y direction start/end position of RAM
-        self.send_data(0x00)
-        self.send_data(0x00)
-        self.send_data(0xDF)
-        self.send_data(0x01)
+        self.send_data([0x00, 0x00, 0xDF, 0x01])
 
         self.send_command(0x22)   # Display Update Control 2
         self.send_data(0xCF)
 
     def EPD_3IN7_1Gray_init(self):
+        print("EPD_3IN7_1Gray_init")
         self.reset()
+        
+        self.send_command(0x04)  # POWER_ON - wake from sleep
+        self.delay_ms(300)
         
         self.send_command(0x12)
         self.delay_ms(300)  
         
         self.send_command(0x46)
         self.send_data(0xF7)
-        self.ReadBusy()
+        self.delay_ms(1)
         self.send_command(0x47)
         self.send_data(0xF7)
-        self.ReadBusy()
+        self.delay_ms(1)
 
-        self.send_command(0x01)   # setting gaet number
-        self.send_data(0xDF)
-        self.send_data(0x01)
-        self.send_data(0x00)
+        self.send_command(0x01)   # setting gate number
+        self.send_data([0xDF, 0x01, 0x00])
 
         self.send_command(0x03)   # set gate voltage
         self.send_data(0x00)
 
         self.send_command(0x04)   # set source voltage
-        self.send_data(0x41)
-        self.send_data(0xA8)
-        self.send_data(0x32)
+        self.send_data([0x41, 0xA8, 0x32])
 
         self.send_command(0x11)   # set data entry sequence
         self.send_data(0x03)
@@ -294,11 +299,7 @@ class EPD_3in7:
         self.send_data(0x03)
 
         self.send_command(0x0C)   # set booster strength
-        self.send_data(0xAE)
-        self.send_data(0xC7)
-        self.send_data(0xC3)
-        self.send_data(0xC0)
-        self.send_data(0xC0)
+        self.send_data([0xAE, 0xC7, 0xC3, 0xC0, 0xC0])
 
         self.send_command(0x18)   # set internal sensor on
         self.send_data(0x80)
@@ -307,31 +308,17 @@ class EPD_3in7:
         self.send_data(0x44)
 
         self.send_command(0x37)   # set display option, these setting turn on previous function
-        self.send_data(0x00)      # can switch 1 gray or 4 gray
-        self.send_data(0xFF)
-        self.send_data(0xFF)
-        self.send_data(0xFF)
-        self.send_data(0xFF)  
-        self.send_data(0x4F)
-        self.send_data(0xFF)
-        self.send_data(0xFF)
-        self.send_data(0xFF)
-        self.send_data(0xFF)  
+        self.send_data([0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0x4F, 0xFF, 0xFF, 0xFF, 0xFF])
 
         self.send_command(0x44)   # setting X direction start/end position of RAM
-        self.send_data(0x00)
-        self.send_data(0x00)
-        self.send_data(0x17)
-        self.send_data(0x01)
+        self.send_data([0x00, 0x00, 0x17, 0x01])
 
         self.send_command(0x45)   # setting Y direction start/end position of RAM
-        self.send_data(0x00)
-        self.send_data(0x00)
-        self.send_data(0xDF)
-        self.send_data(0x01)
+        self.send_data([0x00, 0x00, 0xDF, 0x01])
 
         self.send_command(0x22)   # Display Update Control 2
         self.send_data(0xCF)
+        print("finish init")
         
     def EPD_3IN7_4Gray_Clear(self):    
         high = self.height
@@ -343,29 +330,25 @@ class EPD_3in7:
         self.send_command(0x49)
         self.send_data(0x00)
         self.send_command(0x4E)
-        self.send_data(0x00)
-        self.send_data(0x00)
+        self.send_data([0x00, 0x00])
         self.send_command(0x4F)
-        self.send_data(0x00)
-        self.send_data(0x00)
+        self.send_data([0x00, 0x00])
         
         self.send_command(0x24)
         for j in range(0, high):
             for i in range(0, wide):
-                self.send_data(0Xff)
+                self.send_data(0xFF)
         
         self.send_command(0x4E)
-        self.send_data(0x00)
-        self.send_data(0x00)
+        self.send_data([0x00, 0x00])
          
         self.send_command(0x4F)
-        self.send_data(0x00)
-        self.send_data(0x00)
+        self.send_data([0x00, 0x00])
         
         self.send_command(0x26)
         for j in range(0, high):
             for i in range(0, wide):
-                self.send_data(0Xff)
+                self.send_data(0xFF)
           
         self.Load_LUT(0)
         self.send_command(0x22)
@@ -375,30 +358,34 @@ class EPD_3in7:
         self.ReadBusy()    
         
     def EPD_3IN7_1Gray_Clear(self):
-        
+        print("Clearing EPD 3.7inch 1Gray - filling with BLACK")
         high = self.height
         if( self.width % 8 == 0) :
             wide =  self.width // 8
         else :
             wide =  self.width // 8 + 1
 
+        # Set RAM address counters to origin
         self.send_command(0x4E)
-        self.send_data(0x00)
-        self.send_data(0x00)
+        self.send_data([0x00, 0x00])
         self.send_command(0x4F)
-        self.send_data(0x00)
-        self.send_data(0x00)
+        self.send_data([0x00, 0x00])
 
+        # Fill current image RAM with BLACK (0x00)
         self.send_command(0x24)
+        print(f"Writing {high * wide} bytes of 0x00 to RAM (0x24)")
         for j in range(0, high):
             for i in range(0, wide):
-                self.send_data(0Xff)
+                self.send_data(0x00)  # BLACK
         
-
+        print("Black fill complete. Loading LUT and triggering refresh...")
         self.Load_LUT(1)
+        self.send_command(0x22)
+        self.send_data(0xC7)
 
         self.send_command(0x20)
         self.ReadBusy()
+        print("EPD 3.7inch 1Gray cleared - display should be BLACK")
         
     def EPD_3IN7_4Gray_Display(self,Image):
         
@@ -515,11 +502,9 @@ class EPD_3in7:
         self.send_data(0x00)
         
         self.send_command(0x4E)
-        self.send_data(0x00)
-        self.send_data(0x00)
+        self.send_data([0x00, 0x00])
         self.send_command(0x4F)
-        self.send_data(0x00)
-        self.send_data(0x00)
+        self.send_data([0x00, 0x00])
 
         self.send_command(0x24)
         for j in range(0, high):
@@ -528,6 +513,8 @@ class EPD_3in7:
         
 
         self.Load_LUT(1)
+        self.send_command(0x22)
+        self.send_data(0xC7)
         
         self.send_command(0x20)
         self.ReadBusy()
@@ -541,23 +528,15 @@ class EPD_3in7:
             wide =  self.width // 8 + 1
 
         self.send_command(0x44)
-        self.send_data(0x00)
-        self.send_data(0x00)
-        self.send_data((self.width-1) & 0xff)
-        self.send_data(((self.width-1)>>8) & 0x03)
+        self.send_data([0x00, 0x00, (self.width-1) & 0xff, ((self.width-1)>>8) & 0x03])
         self.send_command(0x45)
-        self.send_data(0x00)
-        self.send_data(0x00)
-        self.send_data((self.height-1) & 0xff)
-        self.send_data(((self.height-1)>>8) & 0x03)
+        self.send_data([0x00, 0x00, (self.height-1) & 0xff, ((self.height-1)>>8) & 0x03])
 
         self.send_command(0x4E)   # SET_RAM_X_ADDRESS_COUNTER
-        self.send_data(0x00)
-        self.send_data(0x00)
+        self.send_data([0x00, 0x00])
 
         self.send_command(0x4F)   # SET_RAM_Y_ADDRESS_COUNTER
-        self.send_data(0x00)
-        self.send_data(0x00)
+        self.send_data([0x00, 0x00])
         
         self.send_command(0x24)
         for j in range(0, high):
@@ -565,6 +544,8 @@ class EPD_3in7:
                 self.send_data(Image[i + j * wide])
 
         self.Load_LUT(2)
+        self.send_command(0x22)
+        self.send_data(0xC7)
         self.send_command(0x20)
         self.ReadBusy()
         
@@ -579,37 +560,38 @@ if __name__=='__main__':
     epd.image1Gray.fill(0xff)
     epd.image4Gray.fill(0xff)
     
-    epd.image4Gray.text("Waveshare", 5, 10, epd.black)
-    epd.image4Gray.text("Pico_ePaper-3.7", 5, 40, epd.black)
-    epd.image4Gray.text("Raspberry Pico", 5, 70, epd.black)
-    epd.EPD_3IN7_4Gray_Display(epd.buffer_4Gray)
-    epd.delay_ms(500)
+    # epd.image4Gray.text("Waveshare", 5, 10, epd.black)
+    # epd.image4Gray.text("Pico_ePaper-3.7", 5, 40, epd.black)
+    # epd.image4Gray.text("Raspberry Pico", 5, 70, epd.black)
+    # epd.EPD_3IN7_4Gray_Display(epd.buffer_4Gray)
+    # epd.delay_ms(500)
     
-    epd.image4Gray.vline(10, 90, 60, epd.black)
-    epd.image4Gray.vline(90, 90, 60, epd.black)
-    epd.image4Gray.hline(10, 90, 80, epd.black)
-    epd.image4Gray.hline(10, 150, 80, epd.black)
-    epd.image4Gray.line(10, 90, 90, 150, epd.black)
-    epd.image4Gray.line(90, 90, 10, 150, epd.black)
-    epd.EPD_3IN7_4Gray_Display(epd.buffer_4Gray)
-    epd.delay_ms(500)
+    # epd.image4Gray.vline(10, 90, 60, epd.black)
+    # epd.image4Gray.vline(90, 90, 60, epd.black)
+    # epd.image4Gray.hline(10, 90, 80, epd.black)
+    # epd.image4Gray.hline(10, 150, 80, epd.black)
+    # epd.image4Gray.line(10, 90, 90, 150, epd.black)
+    # epd.image4Gray.line(90, 90, 10, 150, epd.black)
+    # epd.EPD_3IN7_4Gray_Display(epd.buffer_4Gray)
+    # epd.delay_ms(500)
     
-    epd.image4Gray.rect(10, 180, 50, 80, epd.black)
-    epd.image4Gray.fill_rect(70, 180, 50, 80, epd.black)
-    epd.EPD_3IN7_4Gray_Display(epd.buffer_4Gray)
-    epd.delay_ms(500)
+    # epd.image4Gray.rect(10, 180, 50, 80, epd.black)
+    # epd.image4Gray.fill_rect(70, 180, 50, 80, epd.black)
+    # epd.EPD_3IN7_4Gray_Display(epd.buffer_4Gray)
+    # epd.delay_ms(500)
    
-    epd.image4Gray.fill_rect(0, 270, 280, 30, epd.black)
-    epd.image4Gray.text('GRAY1 with black background',5, 281, epd.white)
-    epd.image4Gray.text('GRAY2 with white background',5, 311, epd.grayish)
-    epd.image4Gray.text('GRAY3 with white background',5, 341, epd.darkgray)
-    epd.image4Gray.text('GRAY4 with white background',5, 371, epd.black)
-    epd.EPD_3IN7_4Gray_Display(epd.buffer_4Gray)
-    epd.delay_ms(500)
+    # epd.image4Gray.fill_rect(0, 270, 280, 30, epd.black)
+    # epd.image4Gray.text('GRAY1 with black background',5, 281, epd.white)
+    # epd.image4Gray.text('GRAY2 with white background',5, 311, epd.grayish)
+    # epd.image4Gray.text('GRAY3 with white background',5, 341, epd.darkgray)
+    # epd.image4Gray.text('GRAY4 with white background',5, 371, epd.black)
+    # epd.EPD_3IN7_4Gray_Display(epd.buffer_4Gray)
+    # epd.delay_ms(500)
     
     
     epd.EPD_3IN7_1Gray_init()
     for i in range(0, 10):
+        print("Display number:", i)
         epd.image1Gray.fill_rect(0, 430, 280, 10, epd.white)
         epd.image1Gray.text(str(i), 136, 431, epd.black)
         epd.EPD_3IN7_1Gray_Display_Part(epd.buffer_1Gray)

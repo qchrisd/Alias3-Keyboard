@@ -1,13 +1,9 @@
 """The main driver for running the epaper keyboard through ESP32."""
 
-# import lib.epd
-from lib.blink import init_pin, blink_led
-import sys
+import lib.uc8235 as uc8235
 
-pin = init_pin(2)  # Initialize pin 2 for LED
+def main():
+    display = uc8235.UC8253()
 
-modules = sys.modules.keys()
-if modules:
-    blink_led(pin, delay=2)
-else:
-    blink_led(pin, delay=0.1)
+if __name__ == "__main__":
+    main()

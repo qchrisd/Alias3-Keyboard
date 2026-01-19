@@ -2,10 +2,11 @@
 
 from machine import Pin, SPI
 import time
+import gc
 
 # Display resolution
-EPD_WIDTH = 416
-EPD_HEIGHT = 240
+EPD_WIDTH = 240
+EPD_HEIGHT = 416
 EPD_WIDTH_BYTES = EPD_WIDTH // 8  # 52 bytes per row
 
 # GPIO pins (ESP32 example)
@@ -107,6 +108,10 @@ class UC8253:
             if time.ticks_diff(time.ticks_ms(), start) > timeout_ms:
                 raise RuntimeError("EPD busy timeout")
             time.sleep_ms(10)
+    def refresh_full(self):
+        self.send_command(DISPLAY_REFRESH)
+        self.wait_until_idle()
+        time.sleep_ms(200)
 
     def init(self):
         # Power settings
@@ -116,35 +121,72 @@ class UC8253:
         # self.send_command(0x00)
         # self.send_data([0b11011111,
         #                 0b00001101])
+
+        # Resolution setting
+        # self.send_command(RESOLUTION_SETTING)
+        # self.send_data(
+        #     [
+        #         EPD_HEIGHT,
+        #         (EPD_WIDTH>> 8) & 0xFF,
+        #         EPD_WIDTH & 0xFF
+        #     ]
+        # )
         
         self.send_command(POWER_ON)
         self.wait_until_idle()
-        self.send_command(DISPLAY_REFRESH)
-        self.wait_until_idle()
+        self.refresh_full()
 
-        # self.write_to_buffer(FULL_WHITE)
-        # self.send_command(DISPLAY_REFRESH)
-        self.pattern_test()
+        print("Writing horizontal stripes...")
+        self.horizontal_stripes()
+        self.refresh_full()
+        print("Screen written.")
+        
+        self.send_command(POWER_ON)
         self.wait_until_idle()
+        self.refresh_full()
 
-    def write_to_buffer(self, buffer:list|bytearray):
-        print("  Starting data transfer...")
-        self.send_command(DISPLAY_START_TRANSMISSION_1)
+        print("Writing vertical stripes...")
+        self.vertical_stripes()
+        self.refresh_full()
+        print("Screen written.")
+
+
+    def write_to_buffer(self, 
+                        buffer:list|bytearray,
+                        buffer_no:int=1,):
+        print(f"  Starting data transfer to buffer {buffer_no}...")
+        if buffer_no == 1:
+            self.send_command(DISPLAY_START_TRANSMISSION_1)
+        else:
+            self.send_command(DISPLAY_START_TRANSMISSION_2)
+        time.sleep_ms(1)
         self.send_data(buffer)
+        time.sleep_ms(1)
+        del buffer
+        gc.collect()
         print(f"  Data transfered.")
 
-    def pattern_test(self):
-        print("Drawing stripes...")
+    def vertical_stripes(self):
+        buf = bytearray([0x0f] * (EPD_WIDTH_BYTES * EPD_HEIGHT))
+        self.write_to_buffer(buf, 1)
+        del buf
+        gc.collect()
+
+    def horizontal_stripes(self):
         buf = bytearray()
-        for i in range(EPD_WIDTH_BYTES * EPD_HEIGHT):
-            if (i // 2) % 2 == 0:
-                buf.append(0x00)  # black
+        row = True
+        for i in range(EPD_HEIGHT):
+            if row == 0:
+                buf.extend([0x00] * EPD_WIDTH_BYTES)  # black row
             else:
-                buf.append(0xFF)  # white
-        self.write_to_buffer(buf)
-        self.wait_until_idle()
-        self.send_command(DISPLAY_REFRESH)
-        self.wait_until_idle()
+                buf.extend([0xFF] * EPD_WIDTH_BYTES)  # white row
+            if i % 4 == 0:
+                row = not row
+        self.write_to_buffer(buf, 1)
+        del buf
+        gc.collect()
+
+
         
 
 # Example usage

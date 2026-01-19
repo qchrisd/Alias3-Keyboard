@@ -286,4 +286,4 @@ if __name__ == "__main__":
     epd = UC8253()
     epd.test_pattern()
     epd.maintenance_full_refresh()
-    epd.test_pattern()
+    # epd.test_pattern()

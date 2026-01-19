@@ -93,6 +93,7 @@ class UC8253:
         self.BUF_NEW = 2
         self.frame_old = bytearray(EPD_WIDTH_BYTES * EPD_HEIGHT)
         self.frame_new = bytearray(EPD_WIDTH_BYTES * EPD_HEIGHT)
+        self.refresh_counter = 0
 
         self.reset()
         self.init()
@@ -170,7 +171,7 @@ class UC8253:
         print(f"  Switched to buffer {self.buffer_current}.")
 
     def write_new_buffer(self, 
-                        buffer:list|bytearray):
+                         buffer:list|bytearray):
         print(f"  Starting data transfer to buffer BUF_NEW...")
         self.send_command(DISPLAY_START_TRANSMISSION_2)
         time.sleep_ms(1)
@@ -179,6 +180,7 @@ class UC8253:
         del buffer
         gc.collect()
         print(f"  Data transfered.")
+        self.refresh_counter += 1
 
     def write_old_buffer(self, 
                         buffer:list|bytearray):
@@ -189,6 +191,7 @@ class UC8253:
         del buffer
         gc.collect()
         print(f"  Data transfered.")
+        self.refresh_counter += 1
 
     def write_to_buffer(self, 
                         buffer:list|bytearray,

@@ -42,6 +42,26 @@ B2W_LUT = 0x22
 W2B_LUT = 0x23
 B2B_LUT = 0x24
 
+LUT_VCOM_NO_FLASH = bytearray([
+    0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00,
+] + [0x00] * 20)
+LUT_W2W_NO_FLASH = bytearray([0x00] * 30)
+LUT_B2B_NO_FLASH = bytearray([0x00] * 30)
+LUT_W2B_NO_FLASH = bytearray([
+    0b00010001,  # Phase 1: VSL, enable
+    0x01,        # 1 frame
+    0x00,        # end
+] + [0x00] * 27)
+LUT_B2W_NO_FLASH = bytearray([
+    0b00100010,  # Phase 1: VSH, enable
+    0x01,        # 1 frame
+    0x00,
+] + [0x00] * 27)
+
+
+
 # Resolution setting
 RESOLUTION_SETTING = 0x61
 
@@ -73,6 +93,7 @@ class UC8253:
         self.dc = Pin(PIN_DC, Pin.OUT, value=0)
         self.rst = Pin(PIN_RST, Pin.OUT, value=1)
         self.busy = Pin(PIN_BUSY, Pin.IN, Pin.PULL_UP)
+        self.buffer_current = 1
 
         self.reset()
         self.init()
@@ -108,10 +129,85 @@ class UC8253:
             if time.ticks_diff(time.ticks_ms(), start) > timeout_ms:
                 raise RuntimeError("EPD busy timeout")
             time.sleep_ms(10)
+
     def refresh_full(self):
+        self.send_command(POWER_ON)
+        self.wait_until_idle()
+
         self.send_command(DISPLAY_REFRESH)
         self.wait_until_idle()
-        time.sleep_ms(200)
+
+    def refresh_no_flash(self):
+        self.send_command(DISPLAY_REFRESH)
+        self.wait_until_idle()
+
+    def load_no_flash_lut(self):
+        # Tell UC8253 to use register LUTs instead of OTP
+        self.send_command(POWER_SETTING_PSR)
+        self.send_data([0b00001111])  # REG_LUT = 1
+        self.send_data([0b00001101])
+
+        # Upload LUTs
+        self.send_command(VCOM_LUT)
+        self.send_data(LUT_VCOM_NO_FLASH)
+
+        self.send_command(W2W_LUT)
+        self.send_data(LUT_W2W_NO_FLASH)
+
+        self.send_command(B2W_LUT)
+        self.send_data(LUT_B2W_NO_FLASH)
+
+        self.send_command(W2B_LUT)
+        self.send_data(LUT_W2B_NO_FLASH)
+
+        self.send_command(B2B_LUT)
+        self.send_data(LUT_B2B_NO_FLASH)
+
+    def switch_buffer(self):
+        if self.buffer_current == 1:
+            self.buffer_current = 2
+        else:
+            self.buffer_current = 1
+        print(f"  Switched to buffer {self.buffer_current}.")
+
+    def write_to_buffer(self, 
+                        buffer:list|bytearray,
+                        buffer_no:int|None = None):
+        if buffer_no == None:
+            buffer_no = self.buffer_current
+            self.switch_buffer()
+        print(f"  Starting data transfer to buffer {buffer_no}...")
+        if buffer_no == 1:
+            self.send_command(DISPLAY_START_TRANSMISSION_1)
+        else:
+            self.send_command(DISPLAY_START_TRANSMISSION_2)
+        time.sleep_ms(1)
+        self.send_data(buffer)
+        time.sleep_ms(1)
+        del buffer
+        gc.collect()
+        print(f"  Data transfered.")
+
+    def vertical_stripes(self):
+        buf = bytearray([0x0f] * (EPD_WIDTH_BYTES * EPD_HEIGHT))
+        self.write_to_buffer(buf)
+        del buf
+        gc.collect()
+
+    def horizontal_stripes(self):
+        buf = bytearray()
+        row = True
+        for i in range(EPD_HEIGHT):
+            if row == 0:
+                buf.extend([0x00] * EPD_WIDTH_BYTES)  # black row
+            else:
+                buf.extend([0xFF] * EPD_WIDTH_BYTES)  # white row
+            if i % 4 == 0:
+                row = not row
+        self.write_to_buffer(buf)
+        del buf
+        gc.collect()
+
 
     def init(self):
         # Power settings
@@ -134,58 +230,23 @@ class UC8253:
         
         self.send_command(POWER_ON)
         self.wait_until_idle()
+        self.load_no_flash_lut()
+        self.write_to_buffer(FULL_WHITE, 1)
+        self.write_to_buffer(FULL_WHITE, 2)
         self.refresh_full()
 
         print("Writing horizontal stripes...")
         self.horizontal_stripes()
-        self.refresh_full()
+        self.refresh_no_flash()
         print("Screen written.")
         
-        self.send_command(POWER_ON)
-        self.wait_until_idle()
-        self.refresh_full()
+        # self.send_command(POWER_ON)
+        # self.wait_until_idle()
 
         print("Writing vertical stripes...")
         self.vertical_stripes()
-        self.refresh_full()
+        self.refresh_no_flash()
         print("Screen written.")
-
-
-    def write_to_buffer(self, 
-                        buffer:list|bytearray,
-                        buffer_no:int=1,):
-        print(f"  Starting data transfer to buffer {buffer_no}...")
-        if buffer_no == 1:
-            self.send_command(DISPLAY_START_TRANSMISSION_1)
-        else:
-            self.send_command(DISPLAY_START_TRANSMISSION_2)
-        time.sleep_ms(1)
-        self.send_data(buffer)
-        time.sleep_ms(1)
-        del buffer
-        gc.collect()
-        print(f"  Data transfered.")
-
-    def vertical_stripes(self):
-        buf = bytearray([0x0f] * (EPD_WIDTH_BYTES * EPD_HEIGHT))
-        self.write_to_buffer(buf, 1)
-        del buf
-        gc.collect()
-
-    def horizontal_stripes(self):
-        buf = bytearray()
-        row = True
-        for i in range(EPD_HEIGHT):
-            if row == 0:
-                buf.extend([0x00] * EPD_WIDTH_BYTES)  # black row
-            else:
-                buf.extend([0xFF] * EPD_WIDTH_BYTES)  # white row
-            if i % 4 == 0:
-                row = not row
-        self.write_to_buffer(buf, 1)
-        del buf
-        gc.collect()
-
 
         
 

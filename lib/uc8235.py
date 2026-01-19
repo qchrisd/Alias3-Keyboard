@@ -137,6 +137,19 @@ class UC8253:
         self.send_command(DISPLAY_REFRESH)
         self.wait_until_idle()
 
+    def maintenance_full_refresh(self):
+        """
+        Switch to OTP LUTs, perform a full refresh to rebalance the panel,
+        then restore no-flash LUTs and differential update mode.
+        """
+        print("Performing maintenance full refresh...")
+        self.reset()
+        self.wait_until_idle()
+        self.refresh_full()
+        self.load_no_flash_lut()
+        self.wait_until_idle()
+        print("Maintenance full refresh done.")
+
     def refresh_no_flash(self):
         self.send_command(DISPLAY_REFRESH)
         self.wait_until_idle()
@@ -271,4 +284,6 @@ class UC8253:
 # Example usage
 if __name__ == "__main__":
     epd = UC8253()
+    epd.test_pattern()
+    epd.maintenance_full_refresh()
     epd.test_pattern()

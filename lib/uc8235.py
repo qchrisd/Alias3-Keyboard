@@ -77,7 +77,7 @@ class UC8253:
         # SPI setup
         self.spi = SPI(
             2,
-            baudrate=200_000,  # start slow for testing
+            baudrate=4_000_000,  # start slow for testing
             polarity=0,
             phase=0,
             sck=Pin(PIN_SCK),
@@ -152,7 +152,7 @@ class UC8253:
         print("Maintenance full refresh done.")
 
     def refresh_no_flash(self):
-        print(f"Refresh counter = {self.refresh_counter}")
+        print(f" Refresh counter = {self.refresh_counter}/{MAINTENANCE_REFRESH_THRESHOLD}")
         if self.refresh_counter >= MAINTENANCE_REFRESH_THRESHOLD:
             self.maintenance_full_refresh()
             self.refresh_counter = 0

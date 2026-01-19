@@ -69,6 +69,7 @@ SPI_CHUNK_SIZE = 512  # bytes
 # Full white and full black buffers
 FULL_WHITE = bytearray([0xFF] * (EPD_WIDTH_BYTES * EPD_HEIGHT))
 FULL_BLACK = bytearray([0x00] * (EPD_WIDTH_BYTES * EPD_HEIGHT))
+MAINTENANCE_REFRESH_THRESHOLD = 5
 
 
 class UC8253:
@@ -151,6 +152,12 @@ class UC8253:
         print("Maintenance full refresh done.")
 
     def refresh_no_flash(self):
+        print(f"Refresh counter = {self.refresh_counter}")
+        if self.refresh_counter >= MAINTENANCE_REFRESH_THRESHOLD:
+            self.maintenance_full_refresh()
+            self.refresh_counter = 0
+            return
+        self.refresh_counter += 1
         self.send_command(DISPLAY_REFRESH)
         self.wait_until_idle()
 
@@ -193,7 +200,6 @@ class UC8253:
         del buffer
         gc.collect()
         print(f"  Data transfered.")
-        self.refresh_counter += 1
 
     def write_old_buffer(self, 
                         buffer:list|bytearray):
@@ -204,7 +210,6 @@ class UC8253:
         del buffer
         gc.collect()
         print(f"  Data transfered.")
-        self.refresh_counter += 1
 
     def write_to_buffer(self, 
                         buffer:list|bytearray,
@@ -265,6 +270,7 @@ class UC8253:
 
     def init(self):
         # Power settings
+        print("UC8253 initializing...")
         self.send_command(POWER_SETTING_PWR)
         self.send_data([0x03, 0x10, 0x3F, 0x3F, 0x0D])
         

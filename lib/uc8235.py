@@ -60,12 +60,8 @@ LUT_B2W_NO_FLASH = bytearray([
     0x00,
 ] + [0x00] * 27)
 
-
-
 # Resolution setting
 RESOLUTION_SETTING = 0x61
-
-
 
 # SPI chunk size for large buffer writes
 SPI_CHUNK_SIZE = 512  # bytes
@@ -93,7 +89,10 @@ class UC8253:
         self.dc = Pin(PIN_DC, Pin.OUT, value=0)
         self.rst = Pin(PIN_RST, Pin.OUT, value=1)
         self.busy = Pin(PIN_BUSY, Pin.IN, Pin.PULL_UP)
-        self.buffer_current = 1
+        self.BUF_OLD = 1
+        self.BUF_NEW = 2
+        self.frame_old = bytearray(EPD_WIDTH_BYTES * EPD_HEIGHT)
+        self.frame_new = bytearray(EPD_WIDTH_BYTES * EPD_HEIGHT)
 
         self.reset()
         self.init()
@@ -170,17 +169,10 @@ class UC8253:
             self.buffer_current = 1
         print(f"  Switched to buffer {self.buffer_current}.")
 
-    def write_to_buffer(self, 
-                        buffer:list|bytearray,
-                        buffer_no:int|None = None):
-        if buffer_no == None:
-            buffer_no = self.buffer_current
-            self.switch_buffer()
-        print(f"  Starting data transfer to buffer {buffer_no}...")
-        if buffer_no == 1:
-            self.send_command(DISPLAY_START_TRANSMISSION_1)
-        else:
-            self.send_command(DISPLAY_START_TRANSMISSION_2)
+    def write_new_buffer(self, 
+                        buffer:list|bytearray):
+        print(f"  Starting data transfer to buffer BUF_NEW...")
+        self.send_command(DISPLAY_START_TRANSMISSION_2)
         time.sleep_ms(1)
         self.send_data(buffer)
         time.sleep_ms(1)
@@ -188,68 +180,92 @@ class UC8253:
         gc.collect()
         print(f"  Data transfered.")
 
+    def write_old_buffer(self, 
+                        buffer:list|bytearray):
+        print(f"  Starting data transfer to buffer BUF_OLD...")
+        self.send_command(DISPLAY_START_TRANSMISSION_1)
+        time.sleep_ms(1)
+        self.send_data(buffer)
+        del buffer
+        gc.collect()
+        print(f"  Data transfered.")
+
+    def write_to_buffer(self, 
+                        buffer:list|bytearray,
+                        buffer_no:int|None = None):
+        if buffer_no is None:
+            buffer_no = self.BUF_NEW
+        print(f"  Starting data transfer to buffer {buffer_no}...")
+        if buffer_no != self.BUF_OLD:
+            self.send_command(DISPLAY_START_TRANSMISSION_2)
+            time.sleep_ms(1)
+            self.send_data(buffer)
+            time.sleep_ms(1)
+            self.refresh_no_flash()
+        print(f"  Starting data transfer to buffer 1...")
+        self.send_command(DISPLAY_START_TRANSMISSION_1)
+        time.sleep_ms(1)
+        self.send_data(buffer)
+        del buffer
+        gc.collect()
+        print(f"  Data transfered.")
+
     def vertical_stripes(self):
-        buf = bytearray([0x0f] * (EPD_WIDTH_BYTES * EPD_HEIGHT))
-        self.write_to_buffer(buf)
-        del buf
+        self.frame_new = bytearray()
+        for x in range(EPD_WIDTH_BYTES*EPD_HEIGHT):
+            self.frame_new.extend([0x0f])
+        self.write_new_buffer(self.frame_new)
         gc.collect()
 
     def horizontal_stripes(self):
-        buf = bytearray()
+        self.frame_new = bytearray()
         row = True
         for i in range(EPD_HEIGHT):
             if row == 0:
-                buf.extend([0x00] * EPD_WIDTH_BYTES)  # black row
+                self.frame_new.extend([0x00] * EPD_WIDTH_BYTES)  # black row
             else:
-                buf.extend([0xFF] * EPD_WIDTH_BYTES)  # white row
+                self.frame_new.extend([0xFF] * EPD_WIDTH_BYTES)  # white row
             if i % 4 == 0:
                 row = not row
-        self.write_to_buffer(buf)
-        del buf
+        self.write_new_buffer(self.frame_new)
         gc.collect()
 
-
-    def init(self):
-        # Power settings
-        self.send_command(POWER_SETTING_PWR)
-        self.send_data([0x03, 0x10, 0x3F, 0x3F, 0x0D])
-        # Panel settings
-        # self.send_command(0x00)
-        # self.send_data([0b11011111,
-        #                 0b00001101])
-
-        # Resolution setting
-        # self.send_command(RESOLUTION_SETTING)
-        # self.send_data(
-        #     [
-        #         EPD_HEIGHT,
-        #         (EPD_WIDTH>> 8) & 0xFF,
-        #         EPD_WIDTH & 0xFF
-        #     ]
-        # )
-        
-        self.send_command(POWER_ON)
-        self.wait_until_idle()
-        self.load_no_flash_lut()
-        self.write_to_buffer(FULL_WHITE, 1)
-        self.write_to_buffer(FULL_WHITE, 2)
-        self.refresh_full()
-
+    def test_pattern(self):
         print("Writing horizontal stripes...")
         self.horizontal_stripes()
         self.refresh_no_flash()
         print("Screen written.")
-        
-        # self.send_command(POWER_ON)
-        # self.wait_until_idle()
 
         print("Writing vertical stripes...")
         self.vertical_stripes()
         self.refresh_no_flash()
         print("Screen written.")
 
+        print("Writing horizontal stripes...")
+        self.horizontal_stripes()
+        self.refresh_no_flash()
+        print("Screen written.")
+
+
+    def init(self):
+        # Power settings
+        self.send_command(POWER_SETTING_PWR)
+        self.send_data([0x03, 0x10, 0x3F, 0x3F, 0x0D])
+        
+        self.send_command(POWER_ON)
+        self.wait_until_idle()
+
+        # Clear panel
+        self.write_old_buffer(FULL_BLACK)
+        self.write_new_buffer(FULL_WHITE)
+        self.refresh_full()
+
+        # Set differential LUTs
+        self.load_no_flash_lut()
+        print("UC8253 initialized.")
         
 
 # Example usage
 if __name__ == "__main__":
     epd = UC8253()
+    epd.test_pattern()
